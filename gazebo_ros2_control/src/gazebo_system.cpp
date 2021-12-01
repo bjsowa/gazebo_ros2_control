@@ -19,9 +19,13 @@
 #include <utility>
 
 #include "gazebo_ros2_control/gazebo_system.hpp"
-#include "gazebo/physics/physics.hh"
-#include "gazebo/sensors/ImuSensor.hh"
+
+#include "gazebo/physics/Joint.hh"
+#include "gazebo/physics/Model.hh"
+#include "gazebo/physics/PhysicsEngine.hh"
+#include "gazebo/physics/World.hh"
 #include "gazebo/sensors/ForceTorqueSensor.hh"
+#include "gazebo/sensors/ImuSensor.hh"
 #include "gazebo/sensors/SensorManager.hh"
 
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
@@ -29,129 +33,18 @@
 namespace gazebo_ros2_control
 {
 
-template<class ENUM, class UNDERLYING = typename std::underlying_type<ENUM>::type>
-class SafeEnum
-{
-public:
-  SafeEnum()
-  : mFlags(0) {}
-  explicit SafeEnum(ENUM singleFlag)
-  : mFlags(singleFlag) {}
-  SafeEnum(const SafeEnum & original)
-  : mFlags(original.mFlags) {}
-
-  SafeEnum & operator|=(ENUM addValue) {mFlags |= addValue; return *this;}
-  SafeEnum operator|(ENUM addValue) {SafeEnum result(*this); result |= addValue; return result;}
-  SafeEnum & operator&=(ENUM maskValue) {mFlags &= maskValue; return *this;}
-  SafeEnum operator&(ENUM maskValue) {SafeEnum result(*this); result &= maskValue; return result;}
-  SafeEnum operator~() {SafeEnum result(*this); result.mFlags = ~result.mFlags; return result;}
-  explicit operator bool() {return mFlags != 0;}
-
-protected:
-  UNDERLYING mFlags;
-};
-
-class GazeboSystemPrivate
-{
-public:
-  GazeboSystemPrivate() = default;
-
-  ~GazeboSystemPrivate() = default;
-
-  // Methods used to control a joint.
-  enum ControlMethod_
-  {
-    NONE      = 0,
-    POSITION  = (1 << 0),
-    VELOCITY  = (1 << 1),
-    EFFORT    = (1 << 2),
-  };
-
-  typedef SafeEnum<enum ControlMethod_> ControlMethod;
-
-  void registerJoints(
-    const hardware_interface::HardwareInfo & hardware_info);
-
-  void registerSensors(
-    const hardware_interface::HardwareInfo & hardware_info);
-
-  hardware_interface::return_type read();
-  hardware_interface::return_type write();
-
-  /// \brief Degrees od freedom.
-  size_t n_dof_;
-
-  /// \brief Number of sensors.
-  size_t n_sensors_;
-
-  // Node Handles
-  rclcpp::Node::SharedPtr ros_node_;
-
-  /// \brief Gazebo Model Ptr.
-  gazebo::physics::ModelPtr parent_model_;
-
-  /// \brief last time the write method was called.
-  rclcpp::Time last_update_sim_time_ros_;
-
-  /// \brief vector with the joint's names.
-  std::vector<std::string> joint_names_;
-
-  /// \brief vector with the control method defined in the URDF for each joint.
-  std::vector<ControlMethod> joint_control_methods_;
-
-  /// \brief handles to the joints from within Gazebo
-  std::vector<gazebo::physics::JointPtr> sim_joints_;
-
-  /// \brief vector with the current joint position
-  std::vector<double> joint_position_;
-
-  /// \brief vector with the current joint velocity
-  std::vector<double> joint_velocity_;
-
-  /// \brief vector with the current joint effort
-  std::vector<double> joint_effort_;
-
-  /// \brief vector with the current cmd joint position
-  std::vector<double> joint_position_cmd_;
-
-  /// \brief vector with the current cmd joint velocity
-  std::vector<double> joint_velocity_cmd_;
-
-  /// \brief vector with the current cmd joint effort
-  std::vector<double> joint_effort_cmd_;
-
-  /// \brief handles to the imus from within Gazebo
-  std::vector<gazebo::sensors::ImuSensorPtr> sim_imu_sensors_;
-
-  /// \brief An array per IMU with 4 orientation, 3 angular velocity and 3 linear acceleration
-  std::vector<std::array<double, 10>> imu_sensor_data_;
-
-  /// \brief handles to the FT sensors from within Gazebo
-  std::vector<gazebo::sensors::ForceTorqueSensorPtr> sim_ft_sensors_;
-
-  /// \brief An array per FT sensor for 3D force and torquee
-  std::vector<std::array<double, 6>> ft_sensor_data_;
-
-  /// \brief state interfaces that will be exported to the Resource Manager
-  std::vector<hardware_interface::StateInterface> state_interfaces_;
-
-  /// \brief command interfaces that will be exported to the Resource Manager
-  std::vector<hardware_interface::CommandInterface> command_interfaces_;
-};
-
 bool GazeboSystem::initSim(
   rclcpp::Node::SharedPtr & ros_node,
   gazebo::physics::ModelPtr parent_model,
   const hardware_interface::HardwareInfo & hardware_info,
   sdf::ElementPtr sdf)
 {
-  this->impl_ = std::make_unique<GazeboSystemPrivate>();
-  this->impl_->last_update_sim_time_ros_ = rclcpp::Time();
+  last_update_sim_time_ros_ = rclcpp::Time();
 
-  this->impl_->ros_node_ = ros_node;
-  this->impl_->parent_model_ = parent_model;
+  ros_node_ = ros_node;
+  parent_model_ = parent_model;
 
-  gazebo::physics::PhysicsEnginePtr physics = gazebo::physics::get_world()->Physics();
+  gazebo::physics::PhysicsEnginePtr physics = parent_model_->GetWorld()->Physics();
 
   std::string physics_type_ = physics->GetType();
   if (physics_type_.empty()) {
@@ -159,18 +52,25 @@ bool GazeboSystem::initSim(
     return false;
   }
 
-  this->impl_->registerJoints(hardware_info);
-  this->impl_->registerSensors(hardware_info);
-
-  if (this->impl_->n_dof_ == 0 && this->impl_->n_sensors_ == 0) {
-    RCLCPP_WARN_STREAM(ros_node->get_logger(), "There is no joint or sensor available");
-    return false;
-  }
-
   return true;
 }
 
-void GazeboSystemPrivate::registerJoints(
+CallbackReturn GazeboSystem::on_init(const hardware_interface::HardwareInfo & system_info)
+{
+  info_ = system_info;
+
+  registerJoints(info_);
+  registerSensors(info_);
+
+  if (n_dof_ == 0 && n_sensors_ == 0) {
+    RCLCPP_WARN_STREAM(ros_node_->get_logger(), "There is no joint or sensor available");
+    return CallbackReturn::ERROR;
+  }
+
+  return CallbackReturn::SUCCESS;
+}
+
+void GazeboSystem::registerJoints(
   const hardware_interface::HardwareInfo & hardware_info)
 {
   n_dof_ = hardware_info.joints.size();
@@ -258,7 +158,7 @@ void GazeboSystemPrivate::registerJoints(
   }
 }
 
-void GazeboSystemPrivate::registerSensors(
+void GazeboSystem::registerSensors(
   const hardware_interface::HardwareInfo & hardware_info)
 {
   // Collect gazebo sensor handles
@@ -393,8 +293,32 @@ void GazeboSystemPrivate::registerSensors(
   }
 }
 
-hardware_interface::return_type GazeboSystemPrivate::read()
+std::vector<hardware_interface::StateInterface>
+GazeboSystem::export_state_interfaces()
 {
+  return std::move(state_interfaces_);
+}
+
+std::vector<hardware_interface::CommandInterface>
+GazeboSystem::export_command_interfaces()
+{
+  return std::move(command_interfaces_);
+}
+
+CallbackReturn GazeboSystem::on_activate(const rclcpp_lifecycle::State & previous_state)
+{
+  return CallbackReturn::SUCCESS;
+}
+
+CallbackReturn GazeboSystem::on_deactivate(const rclcpp_lifecycle::State & previous_state)
+{
+  return CallbackReturn::SUCCESS;
+}
+
+hardware_interface::return_type GazeboSystem::read()
+{
+  RCLCPP_WARN_STREAM(ros_node_->get_logger(), lifecycle_state_.label());
+
   for (unsigned int j = 0; j < joint_names_.size(); j++) {
     if (sim_joints_[j]) {
       joint_position_[j] = sim_joints_[j]->Position(0);
@@ -432,7 +356,7 @@ hardware_interface::return_type GazeboSystemPrivate::read()
   return hardware_interface::return_type::OK;
 }
 
-hardware_interface::return_type GazeboSystemPrivate::write()
+hardware_interface::return_type GazeboSystem::write()
 {
   // Get the simulation time and period
   gazebo::common::Time gz_time_now = parent_model_->GetWorld()->SimTime();
@@ -464,37 +388,6 @@ hardware_interface::return_type GazeboSystemPrivate::write()
   return hardware_interface::return_type::OK;
 }
 
-std::vector<hardware_interface::StateInterface>
-GazeboSystem::export_state_interfaces()
-{
-  return std::move(this->impl_->state_interfaces_);
-}
-
-std::vector<hardware_interface::CommandInterface>
-GazeboSystem::export_command_interfaces()
-{
-  return std::move(this->impl_->command_interfaces_);
-}
-
-CallbackReturn GazeboSystem::on_activate(const rclcpp_lifecycle::State & previous_state)
-{
-  return CallbackReturn::SUCCESS;
-}
-
-CallbackReturn GazeboSystem::on_deactivate(const rclcpp_lifecycle::State & previous_state)
-{
-  return CallbackReturn::SUCCESS;
-}
-
-hardware_interface::return_type GazeboSystem::read()
-{
-  return this->impl_->read();
-}
-
-hardware_interface::return_type GazeboSystem::write()
-{
-  return this->impl_->write();
-}
 }  // namespace gazebo_ros2_control
 
 #include "pluginlib/class_list_macros.hpp"  // NOLINT
