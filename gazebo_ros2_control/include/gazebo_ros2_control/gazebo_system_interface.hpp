@@ -34,12 +34,12 @@ class GazeboSystemInterface
 {
 public:
   /// \brief Initilize the system interface
-  /// param[in] model_nh pointer to the ros2 node
+  /// param[in] ros_node pointer to the ros2 node
   /// param[in] parent_model pointer to the model
   /// param[in] control_hardware vector filled with information about robot's control resources
   /// param[in] sdf pointer to the SDF
   virtual bool initSim(
-    rclcpp::Node::SharedPtr & model_nh,
+    rclcpp::Node::SharedPtr & ros_node,
     gazebo::physics::ModelPtr parent_model,
     const hardware_interface::HardwareInfo & hardware_info,
     sdf::ElementPtr sdf) = 0;

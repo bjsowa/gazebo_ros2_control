@@ -53,14 +53,14 @@ public:
 
   // Documentation Inherited
   bool initSim(
-    rclcpp::Node::SharedPtr & model_nh,
+    rclcpp::Node::SharedPtr & ros_node,
     gazebo::physics::ModelPtr parent_model,
     const hardware_interface::HardwareInfo & hardware_info,
     sdf::ElementPtr sdf) override;
 
 private:
-  /// \brief Private data class
-  std::unique_ptr<GazeboSystemPrivate> dataPtr;
+  /// \brief Private data pointer
+  std::unique_ptr<GazeboSystemPrivate> impl_;
 };
 
 }  // namespace gazebo_ros2_control

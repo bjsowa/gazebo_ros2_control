@@ -85,7 +85,7 @@ public:
   size_t n_sensors_;
 
   // Node Handles
-  rclcpp::Node::SharedPtr model_nh_;
+  rclcpp::Node::SharedPtr ros_node_;
 
   /// \brief Gazebo Model Ptr.
   gazebo::physics::ModelPtr parent_model_;
@@ -140,30 +140,30 @@ public:
 };
 
 bool GazeboSystem::initSim(
-  rclcpp::Node::SharedPtr & model_nh,
+  rclcpp::Node::SharedPtr & ros_node,
   gazebo::physics::ModelPtr parent_model,
   const hardware_interface::HardwareInfo & hardware_info,
   sdf::ElementPtr sdf)
 {
-  this->dataPtr = std::make_unique<GazeboSystemPrivate>();
-  this->dataPtr->last_update_sim_time_ros_ = rclcpp::Time();
+  this->impl_ = std::make_unique<GazeboSystemPrivate>();
+  this->impl_->last_update_sim_time_ros_ = rclcpp::Time();
 
-  this->dataPtr->model_nh_ = model_nh;
-  this->dataPtr->parent_model_ = parent_model;
+  this->impl_->ros_node_ = ros_node;
+  this->impl_->parent_model_ = parent_model;
 
   gazebo::physics::PhysicsEnginePtr physics = gazebo::physics::get_world()->Physics();
 
   std::string physics_type_ = physics->GetType();
   if (physics_type_.empty()) {
-    RCLCPP_ERROR(model_nh->get_logger(), "No physics engine configured in Gazebo.");
+    RCLCPP_ERROR(ros_node->get_logger(), "No physics engine configured in Gazebo.");
     return false;
   }
 
-  this->dataPtr->registerJoints(hardware_info);
-  this->dataPtr->registerSensors(hardware_info);
+  this->impl_->registerJoints(hardware_info);
+  this->impl_->registerSensors(hardware_info);
 
-  if (this->dataPtr->n_dof_ == 0 && this->dataPtr->n_sensors_ == 0) {
-    RCLCPP_WARN_STREAM(model_nh->get_logger(), "There is no joint or sensor available");
+  if (this->impl_->n_dof_ == 0 && this->impl_->n_sensors_ == 0) {
+    RCLCPP_WARN_STREAM(ros_node->get_logger(), "There is no joint or sensor available");
     return false;
   }
 
@@ -191,20 +191,20 @@ void GazeboSystemPrivate::registerJoints(
     sim_joints_.push_back(simjoint);
     if (!simjoint) {
       RCLCPP_WARN_STREAM(
-        model_nh_->get_logger(), "Skipping joint in the URDF named '" << joint_name <<
+        ros_node_->get_logger(), "Skipping joint in the URDF named '" << joint_name <<
           "' which is not in the gazebo model.");
       continue;
     }
 
     // Accept this joint and continue configuration
-    RCLCPP_INFO_STREAM(model_nh_->get_logger(), "Loading joint: " << joint_name);
+    RCLCPP_INFO_STREAM(ros_node_->get_logger(), "Loading joint: " << joint_name);
 
-    RCLCPP_INFO_STREAM(model_nh_->get_logger(), "\tCommand:");
+    RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\tCommand:");
 
     // register the command handles
     for (unsigned int i = 0; i < hardware_info.joints[j].command_interfaces.size(); i++) {
       if (hardware_info.joints[j].command_interfaces[i].name == "position") {
-        RCLCPP_INFO_STREAM(model_nh_->get_logger(), "\t\t position");
+        RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t position");
         joint_control_methods_[j] |= POSITION;
         command_interfaces_.emplace_back(
           joint_name,
@@ -212,7 +212,7 @@ void GazeboSystemPrivate::registerJoints(
           &joint_position_cmd_[j]);
       }
       if (hardware_info.joints[j].command_interfaces[i].name == "velocity") {
-        RCLCPP_INFO_STREAM(model_nh_->get_logger(), "\t\t velocity");
+        RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t velocity");
         joint_control_methods_[j] |= VELOCITY;
         command_interfaces_.emplace_back(
           joint_name,
@@ -221,7 +221,7 @@ void GazeboSystemPrivate::registerJoints(
       }
       if (hardware_info.joints[j].command_interfaces[i].name == "effort") {
         joint_control_methods_[j] |= EFFORT;
-        RCLCPP_INFO_STREAM(model_nh_->get_logger(), "\t\t effort");
+        RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t effort");
         command_interfaces_.emplace_back(
           joint_name,
           hardware_interface::HW_IF_EFFORT,
@@ -229,26 +229,26 @@ void GazeboSystemPrivate::registerJoints(
       }
     }
 
-    RCLCPP_INFO_STREAM(model_nh_->get_logger(), "\tState:");
+    RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\tState:");
 
     // register the state handles
     for (unsigned int i = 0; i < hardware_info.joints[j].state_interfaces.size(); i++) {
       if (hardware_info.joints[j].state_interfaces[i].name == "position") {
-        RCLCPP_INFO_STREAM(model_nh_->get_logger(), "\t\t position");
+        RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t position");
         state_interfaces_.emplace_back(
           joint_name,
           hardware_interface::HW_IF_POSITION,
           &joint_position_[j]);
       }
       if (hardware_info.joints[j].state_interfaces[i].name == "velocity") {
-        RCLCPP_INFO_STREAM(model_nh_->get_logger(), "\t\t velocity");
+        RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t velocity");
         state_interfaces_.emplace_back(
           joint_name,
           hardware_interface::HW_IF_VELOCITY,
           &joint_velocity_[j]);
       }
       if (hardware_info.joints[j].state_interfaces[i].name == "effort") {
-        RCLCPP_INFO_STREAM(model_nh_->get_logger(), "\t\t effort");
+        RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t effort");
         state_interfaces_.emplace_back(
           joint_name,
           hardware_interface::HW_IF_EFFORT,
@@ -292,13 +292,13 @@ void GazeboSystemPrivate::registerSensors(
     }
     if (gz_sensor_names.empty()) {
       RCLCPP_WARN_STREAM(
-        model_nh_->get_logger(), "Skipping sensor in the URDF named '" << sensor_name <<
+        ros_node_->get_logger(), "Skipping sensor in the URDF named '" << sensor_name <<
           "' which is not in the gazebo model.");
       continue;
     }
     if (gz_sensor_names.size() > 1) {
       RCLCPP_WARN_STREAM(
-        model_nh_->get_logger(), "Sensor in the URDF named '" << sensor_name <<
+        ros_node_->get_logger(), "Sensor in the URDF named '" << sensor_name <<
           "' has more than one gazebo sensor with the " <<
           "same name, only using the first. It has " << gz_sensor_names.size() << " sensors");
     }
@@ -307,7 +307,7 @@ void GazeboSystemPrivate::registerSensors(
       gz_sensor_names[0]);
     if (!simsensor) {
       RCLCPP_ERROR_STREAM(
-        model_nh_->get_logger(),
+        ros_node_->get_logger(),
         "Error retrieving sensor '" << sensor_name << " from the sensor manager");
       continue;
     }
@@ -316,7 +316,7 @@ void GazeboSystemPrivate::registerSensors(
         std::dynamic_pointer_cast<gazebo::sensors::ImuSensor>(simsensor);
       if (!imu_sensor) {
         RCLCPP_ERROR_STREAM(
-          model_nh_->get_logger(),
+          ros_node_->get_logger(),
           "Error retrieving casting sensor '" << sensor_name << " to ImuSensor");
         continue;
       }
@@ -327,7 +327,7 @@ void GazeboSystemPrivate::registerSensors(
         std::dynamic_pointer_cast<gazebo::sensors::ForceTorqueSensor>(simsensor);
       if (!ft_sensor) {
         RCLCPP_ERROR_STREAM(
-          model_nh_->get_logger(),
+          ros_node_->get_logger(),
           "Error retrieving casting sensor '" << sensor_name << " to ForceTorqueSensor");
         continue;
       }
@@ -343,9 +343,9 @@ void GazeboSystemPrivate::registerSensors(
 
   for (unsigned int i = 0; i < imu_components_.size(); i++) {
     const std::string & sensor_name = imu_components_[i].name;
-    RCLCPP_INFO_STREAM(model_nh_->get_logger(), "Loading sensor: " << sensor_name);
+    RCLCPP_INFO_STREAM(ros_node_->get_logger(), "Loading sensor: " << sensor_name);
     RCLCPP_INFO_STREAM(
-      model_nh_->get_logger(), "\tState:");
+      ros_node_->get_logger(), "\tState:");
     for (const auto & state_interface : imu_components_[i].state_interfaces) {
       static const std::map<std::string, size_t> interface_name_map = {
         {"orientation.x", 0},
@@ -359,7 +359,7 @@ void GazeboSystemPrivate::registerSensors(
         {"linear_acceleration.y", 8},
         {"linear_acceleration.z", 9},
       };
-      RCLCPP_INFO_STREAM(model_nh_->get_logger(), "\t\t " << state_interface.name);
+      RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t " << state_interface.name);
 
       size_t data_index = interface_name_map.at(state_interface.name);
       state_interfaces_.emplace_back(
@@ -370,9 +370,9 @@ void GazeboSystemPrivate::registerSensors(
   }
   for (unsigned int i = 0; i < ft_sensor_components_.size(); i++) {
     const std::string & sensor_name = ft_sensor_components_[i].name;
-    RCLCPP_INFO_STREAM(model_nh_->get_logger(), "Loading sensor: " << sensor_name);
+    RCLCPP_INFO_STREAM(ros_node_->get_logger(), "Loading sensor: " << sensor_name);
     RCLCPP_INFO_STREAM(
-      model_nh_->get_logger(), "\tState:");
+      ros_node_->get_logger(), "\tState:");
     for (const auto & state_interface : ft_sensor_components_[i].state_interfaces) {
       static const std::map<std::string, size_t> interface_name_map = {
         {"force.x", 0},
@@ -382,7 +382,7 @@ void GazeboSystemPrivate::registerSensors(
         {"torque.y", 4},
         {"torque.z", 5}
       };
-      RCLCPP_INFO_STREAM(model_nh_->get_logger(), "\t\t " << state_interface.name);
+      RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t " << state_interface.name);
 
       size_t data_index = interface_name_map.at(state_interface.name);
       state_interfaces_.emplace_back(
@@ -467,13 +467,13 @@ hardware_interface::return_type GazeboSystemPrivate::write()
 std::vector<hardware_interface::StateInterface>
 GazeboSystem::export_state_interfaces()
 {
-  return std::move(this->dataPtr->state_interfaces_);
+  return std::move(this->impl_->state_interfaces_);
 }
 
 std::vector<hardware_interface::CommandInterface>
 GazeboSystem::export_command_interfaces()
 {
-  return std::move(this->dataPtr->command_interfaces_);
+  return std::move(this->impl_->command_interfaces_);
 }
 
 CallbackReturn GazeboSystem::on_activate(const rclcpp_lifecycle::State & previous_state)
@@ -488,12 +488,12 @@ CallbackReturn GazeboSystem::on_deactivate(const rclcpp_lifecycle::State & previ
 
 hardware_interface::return_type GazeboSystem::read()
 {
-  return this->dataPtr->read();
+  return this->impl_->read();
 }
 
 hardware_interface::return_type GazeboSystem::write()
 {
-  return this->dataPtr->write();
+  return this->impl_->write();
 }
 }  // namespace gazebo_ros2_control
 
