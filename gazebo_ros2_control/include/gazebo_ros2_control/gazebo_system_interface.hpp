@@ -16,45 +16,17 @@
 #ifndef GAZEBO_ROS2_CONTROL__GAZEBO_SYSTEM_INTERFACE_HPP_
 #define GAZEBO_ROS2_CONTROL__GAZEBO_SYSTEM_INTERFACE_HPP_
 
-#include <memory>
-#include <string>
-#include <vector>
-
-#include "gazebo/physics/Joint.hh"
-#include "gazebo/physics/Model.hh"
-#include "gazebo/physics/physics.hh"
+#include "gazebo/physics/PhysicsTypes.hh"
 
 #include "hardware_interface/system_interface.hpp"
+#include "hardware_interface/hardware_info.hpp"
 
-#include "rclcpp/rclcpp.hpp"
+#include "rclcpp/node.hpp"
 
-// URDF
-#include "urdf/model.h"
+#include "sdf/Element.hh"
 
 namespace gazebo_ros2_control
 {
-
-template<class ENUM, class UNDERLYING = typename std::underlying_type<ENUM>::type>
-class SafeEnum
-{
-public:
-  SafeEnum()
-  : mFlags(0) {}
-  explicit SafeEnum(ENUM singleFlag)
-  : mFlags(singleFlag) {}
-  SafeEnum(const SafeEnum & original)
-  : mFlags(original.mFlags) {}
-
-  SafeEnum & operator|=(ENUM addValue) {mFlags |= addValue; return *this;}
-  SafeEnum operator|(ENUM addValue) {SafeEnum result(*this); result |= addValue; return result;}
-  SafeEnum & operator&=(ENUM maskValue) {mFlags &= maskValue; return *this;}
-  SafeEnum operator&(ENUM maskValue) {SafeEnum result(*this); result &= maskValue; return result;}
-  SafeEnum operator~() {SafeEnum result(*this); result.mFlags = ~result.mFlags; return result;}
-  explicit operator bool() {return mFlags != 0;}
-
-protected:
-  UNDERLYING mFlags;
-};
 
 // SystemInterface provides API-level access to read and command joint properties.
 class GazeboSystemInterface
@@ -71,20 +43,6 @@ public:
     gazebo::physics::ModelPtr parent_model,
     const hardware_interface::HardwareInfo & hardware_info,
     sdf::ElementPtr sdf) = 0;
-
-  // Methods used to control a joint.
-  enum ControlMethod_
-  {
-    NONE      = 0,
-    POSITION  = (1 << 0),
-    VELOCITY  = (1 << 1),
-    EFFORT    = (1 << 2),
-  };
-
-  typedef SafeEnum<enum ControlMethod_> ControlMethod;
-
-protected:
-  rclcpp::Node::SharedPtr nh_;
 };
 
 }  // namespace gazebo_ros2_control

@@ -37,6 +37,9 @@
 #include <utility>
 #include <vector>
 
+#include "gazebo/physics/World.hh"
+#include "gazebo/physics/PhysicsEngine.hh"
+
 #include "gazebo_ros/node.hpp"
 
 #include "gazebo_ros2_control/gazebo_ros2_control_plugin.hpp"

@@ -16,15 +16,7 @@
 #ifndef GAZEBO_ROS2_CONTROL__GAZEBO_SYSTEM_HPP_
 #define GAZEBO_ROS2_CONTROL__GAZEBO_SYSTEM_HPP_
 
-#include <memory>
-#include <string>
-#include <vector>
-
-#include "angles/angles.h"
-
 #include "gazebo_ros2_control/gazebo_system_interface.hpp"
-
-#include "std_msgs/msg/bool.hpp"
 
 namespace gazebo_ros2_control
 {
@@ -67,14 +59,6 @@ public:
     sdf::ElementPtr sdf) override;
 
 private:
-  void registerJoints(
-    const hardware_interface::HardwareInfo & hardware_info,
-    gazebo::physics::ModelPtr parent_model);
-
-  void registerSensors(
-    const hardware_interface::HardwareInfo & hardware_info,
-    gazebo::physics::ModelPtr parent_model);
-
   /// \brief Private data class
   std::unique_ptr<GazeboSystemPrivate> dataPtr;
 };
