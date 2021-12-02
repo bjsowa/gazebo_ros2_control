@@ -103,7 +103,9 @@ void GazeboSystem::registerJoints(
 
     // register the command handles
     for (unsigned int i = 0; i < hardware_info.joints[j].command_interfaces.size(); i++) {
-      if (hardware_info.joints[j].command_interfaces[i].name == "position") {
+      if (hardware_info.joints[j].command_interfaces[i].name ==
+        hardware_interface::HW_IF_POSITION)
+      {
         RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t position");
         joint_control_methods_[j] |= POSITION;
         command_interfaces_.emplace_back(
@@ -111,7 +113,9 @@ void GazeboSystem::registerJoints(
           hardware_interface::HW_IF_POSITION,
           &joint_position_cmd_[j]);
       }
-      if (hardware_info.joints[j].command_interfaces[i].name == "velocity") {
+      if (hardware_info.joints[j].command_interfaces[i].name ==
+        hardware_interface::HW_IF_VELOCITY)
+      {
         RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t velocity");
         joint_control_methods_[j] |= VELOCITY;
         command_interfaces_.emplace_back(
@@ -119,7 +123,9 @@ void GazeboSystem::registerJoints(
           hardware_interface::HW_IF_VELOCITY,
           &joint_velocity_cmd_[j]);
       }
-      if (hardware_info.joints[j].command_interfaces[i].name == "effort") {
+      if (hardware_info.joints[j].command_interfaces[i].name ==
+        hardware_interface::HW_IF_EFFORT)
+      {
         joint_control_methods_[j] |= EFFORT;
         RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t effort");
         command_interfaces_.emplace_back(
@@ -133,21 +139,21 @@ void GazeboSystem::registerJoints(
 
     // register the state handles
     for (unsigned int i = 0; i < hardware_info.joints[j].state_interfaces.size(); i++) {
-      if (hardware_info.joints[j].state_interfaces[i].name == "position") {
+      if (hardware_info.joints[j].state_interfaces[i].name == hardware_interface::HW_IF_POSITION) {
         RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t position");
         state_interfaces_.emplace_back(
           joint_name,
           hardware_interface::HW_IF_POSITION,
           &joint_position_[j]);
       }
-      if (hardware_info.joints[j].state_interfaces[i].name == "velocity") {
+      if (hardware_info.joints[j].state_interfaces[i].name == hardware_interface::HW_IF_VELOCITY) {
         RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t velocity");
         state_interfaces_.emplace_back(
           joint_name,
           hardware_interface::HW_IF_VELOCITY,
           &joint_velocity_[j]);
       }
-      if (hardware_info.joints[j].state_interfaces[i].name == "effort") {
+      if (hardware_info.joints[j].state_interfaces[i].name == hardware_interface::HW_IF_EFFORT) {
         RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t effort");
         state_interfaces_.emplace_back(
           joint_name,
