@@ -317,8 +317,6 @@ CallbackReturn GazeboSystem::on_deactivate(const rclcpp_lifecycle::State & previ
 
 hardware_interface::return_type GazeboSystem::read()
 {
-  RCLCPP_WARN_STREAM(ros_node_->get_logger(), lifecycle_state_.label());
-
   for (unsigned int j = 0; j < joint_names_.size(); j++) {
     if (sim_joints_[j]) {
       joint_position_[j] = sim_joints_[j]->Position(0);
