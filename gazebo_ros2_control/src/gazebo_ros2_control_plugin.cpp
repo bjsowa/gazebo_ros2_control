@@ -49,6 +49,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 
+#include "std_msgs/msg/string.hpp"
+
 #include "hardware_interface/resource_manager.hpp"
 #include "hardware_interface/component_parser.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
@@ -74,8 +76,8 @@ public:
   // Called on world reset
   virtual void Reset();
 
-  // Get the URDF XML from the parameter server
-  std::string getURDF(std::string param_name) const;
+  // Get the URDF XML from the robot description topic
+  std::string getURDF(std::string topic_name) const;
 
   // Node Handles
   gazebo_ros::Node::SharedPtr ros_node_;
@@ -90,11 +92,8 @@ public:
   boost::shared_ptr<pluginlib::ClassLoader<
       gazebo_ros2_control::GazeboSystemInterface>> robot_hw_sim_loader_;
 
-  // String with the robot description
-  std::string robot_description_;
-
-  // String with the name of the node that contains the robot_description
-  std::string robot_description_node_;
+  // String with the robot description topic name
+  std::string robot_description_topic_;
 
   // Name of the file with the controllers configuration
   std::string param_file_;
@@ -171,23 +170,16 @@ void GazeboRosControlPlugin::Load(gazebo::physics::ModelPtr parent, sdf::Element
     RCLCPP_FATAL_STREAM(
       impl_->ros_node_->get_logger(),
       "A ROS node for Gazebo has not been initialized, unable to load plugin. " <<
-        "Load the Gazebo system plugin 'libgazebo_ros_api_plugin.so' in the gazebo_ros package)");
+        "Load the Gazebo system plugin 'libgazebo_ros_init.so' in the gazebo_ros package)");
     return;
   }
 
   // Get robot_description ROS param name
-  if (sdf->HasElement("robot_param")) {
-    impl_->robot_description_ = sdf->GetElement("robot_param")->Get<std::string>();
+  if (sdf->HasElement("robot_description_topic")) {
+    impl_->robot_description_topic_ =
+      sdf->GetElement("robot_description_topic")->Get<std::string>();
   } else {
-    impl_->robot_description_ = "robot_description";  // default
-  }
-
-  // Get robot_description ROS param name
-  if (sdf->HasElement("robot_param_node")) {
-    impl_->robot_description_node_ =
-      sdf->GetElement("robot_param_node")->Get<std::string>();
-  } else {
-    impl_->robot_description_node_ = "robot_state_publisher";  // default
+    impl_->robot_description_topic_ = "robot_description";  // default
   }
 
   if (sdf->HasElement("parameters")) {
@@ -265,7 +257,7 @@ void GazeboRosControlPlugin::Load(gazebo::physics::ModelPtr parent, sdf::Element
   std::string urdf_string;
   std::vector<hardware_interface::HardwareInfo> control_hardware;
   try {
-    urdf_string = impl_->getURDF(impl_->robot_description_);
+    urdf_string = impl_->getURDF(impl_->robot_description_topic_);
     control_hardware = hardware_interface::parse_control_resources_from_urdf(urdf_string);
   } catch (const std::runtime_error & ex) {
     RCLCPP_ERROR_STREAM(
@@ -346,11 +338,11 @@ void GazeboRosControlPlugin::Load(gazebo::physics::ModelPtr parent, sdf::Element
 
   impl_->stop_ = false;
   auto spin = [this]()
-    {
-      while (rclcpp::ok() && !impl_->stop_) {
-        impl_->executor_->spin_once();
-      }
-    };
+  {
+    while (rclcpp::ok() && !impl_->stop_) {
+      impl_->executor_->spin_once();
+    }
+  };
   impl_->thread_executor_spin_ = std::thread(spin);
 
   // Listen to the update event. This event is broadcast every simulation iteration.
@@ -390,55 +382,40 @@ void GazeboRosControlPrivate::Reset()
 }
 
 // Get the URDF XML from the parameter server
-std::string GazeboRosControlPrivate::getURDF(std::string param_name) const
+std::string GazeboRosControlPrivate::getURDF(std::string topic_name) const
 {
-  std::string urdf_string;
+  std_msgs::msg::String description_msg;
 
-  using namespace std::chrono_literals;
-  auto parameters_client = std::make_shared<rclcpp::AsyncParametersClient>(
-    ros_node_, robot_description_node_);
-  while (!parameters_client->wait_for_service(0.5s)) {
-    if (!rclcpp::ok()) {
-      RCLCPP_ERROR(
-        ros_node_->get_logger(), "Interrupted while waiting for %s service. Exiting.",
-        robot_description_node_.c_str());
-      return 0;
+  auto sub = ros_node_->create_subscription<std_msgs::msg::String>(
+    topic_name,
+    rclcpp::QoS(1).reliable().transient_local(),
+    [&description_msg](const std_msgs::msg::String::SharedPtr msg) {
+      description_msg = *msg;
     }
-    RCLCPP_ERROR(
-      ros_node_->get_logger(), "%s service not available, waiting again...",
-      robot_description_node_.c_str());
+  );
+
+  rclcpp::WaitSet wait_set;
+  wait_set.add_subscription(sub);
+
+  if (description_msg.data.empty()) {
+    while (true) {
+      auto ret = wait_set.wait(3s);
+      if (ret.kind() == rclcpp::WaitResultKind::Ready) {
+        rclcpp::MessageInfo info;
+        if (sub->take(description_msg, info)) {break;}
+      }
+
+      RCLCPP_ERROR_STREAM(
+        ros_node_->get_logger(),
+        "Failed to receive urdf from the " << topic_name << " topic. Will keep trying...");
+    }
   }
 
-  RCLCPP_INFO(
-    ros_node_->get_logger(), "connected to service!! %s", robot_description_node_.c_str());
+  RCLCPP_INFO_STREAM(
+    ros_node_->get_logger(),
+    "Recieved urdf from the " << topic_name << " topic, parsing...");
 
-  // search and wait for robot_description on param server
-  while (urdf_string.empty()) {
-    std::string search_param_name;
-    RCLCPP_DEBUG(ros_node_->get_logger(), "param_name %s", param_name.c_str());
-
-    try {
-      auto f = parameters_client->get_parameters({param_name});
-      f.wait();
-      std::vector<rclcpp::Parameter> values = f.get();
-      urdf_string = values[0].as_string();
-    } catch (const std::exception & e) {
-      RCLCPP_ERROR(ros_node_->get_logger(), "%s", e.what());
-    }
-
-    if (!urdf_string.empty()) {
-      break;
-    } else {
-      RCLCPP_ERROR(
-        ros_node_->get_logger(), "gazebo_ros2_control plugin is waiting for model"
-        " URDF in parameter [%s] on the ROS param server.", search_param_name.c_str());
-    }
-    usleep(100000);
-  }
-  RCLCPP_INFO(
-    ros_node_->get_logger(), "Recieved urdf from param server, parsing...");
-
-  return urdf_string;
+  return description_msg.data;
 }
 
 // Register this plugin with the simulator
