@@ -76,7 +76,8 @@ void GazeboSystem::registerJoints(
   n_dof_ = hardware_info.joints.size();
 
   joint_names_.resize(n_dof_);
-  joint_control_methods_.resize(n_dof_);
+  joint_available_control_methods_.resize(n_dof_);
+  joint_current_control_method_.resize(n_dof_, NONE);
   joint_position_.resize(n_dof_);
   joint_velocity_.resize(n_dof_);
   joint_effort_.resize(n_dof_);
@@ -107,7 +108,7 @@ void GazeboSystem::registerJoints(
         hardware_interface::HW_IF_POSITION)
       {
         RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t position");
-        joint_control_methods_[j] |= POSITION;
+        joint_available_control_methods_[j].push_back(POSITION);
         command_interfaces_.emplace_back(
           joint_name,
           hardware_interface::HW_IF_POSITION,
@@ -117,7 +118,7 @@ void GazeboSystem::registerJoints(
         hardware_interface::HW_IF_VELOCITY)
       {
         RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t velocity");
-        joint_control_methods_[j] |= VELOCITY;
+        joint_available_control_methods_[j].push_back(VELOCITY);
         command_interfaces_.emplace_back(
           joint_name,
           hardware_interface::HW_IF_VELOCITY,
@@ -126,7 +127,7 @@ void GazeboSystem::registerJoints(
       if (hardware_info.joints[j].command_interfaces[i].name ==
         hardware_interface::HW_IF_EFFORT)
       {
-        joint_control_methods_[j] |= EFFORT;
+        joint_available_control_methods_[j].push_back(EFFORT);
         RCLCPP_INFO_STREAM(ros_node_->get_logger(), "\t\t effort");
         command_interfaces_.emplace_back(
           joint_name,
@@ -369,20 +370,12 @@ hardware_interface::return_type GazeboSystem::write()
 
   for (unsigned int j = 0; j < joint_names_.size(); j++) {
     if (sim_joints_[j]) {
-      if (joint_control_methods_[j] & POSITION) {
-        sim_joints_[j]->SetPosition(
-          0, joint_position_cmd_[j],
-          true);
-      }
-      if (joint_control_methods_[j] & VELOCITY) {
-        sim_joints_[j]->SetVelocity(
-          0,
-          joint_velocity_cmd_[j]);
-      }
-      if (joint_control_methods_[j] & EFFORT) {
-        const double effort =
-          joint_effort_cmd_[j];
-        sim_joints_[j]->SetForce(0, effort);
+      if (joint_current_control_method_[j] == POSITION) {
+        sim_joints_[j]->SetPosition(0, joint_position_cmd_[j], true);
+      } else if (joint_current_control_method_[j] == VELOCITY) {
+        sim_joints_[j]->SetVelocity(0, joint_velocity_cmd_[j]);
+      } else if (joint_current_control_method_[j] == EFFORT) {
+        sim_joints_[j]->SetForce(0, joint_effort_cmd_[j]);
       }
     }
   }

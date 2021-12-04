@@ -24,28 +24,6 @@
 namespace gazebo_ros2_control
 {
 
-template<class ENUM, class UNDERLYING = typename std::underlying_type<ENUM>::type>
-class SafeEnum
-{
-public:
-  SafeEnum()
-  : mFlags(0) {}
-  explicit SafeEnum(ENUM singleFlag)
-  : mFlags(singleFlag) {}
-  SafeEnum(const SafeEnum & original)
-  : mFlags(original.mFlags) {}
-
-  SafeEnum & operator|=(ENUM addValue) {mFlags |= addValue; return *this;}
-  SafeEnum operator|(ENUM addValue) {SafeEnum result(*this); result |= addValue; return result;}
-  SafeEnum & operator&=(ENUM maskValue) {mFlags &= maskValue; return *this;}
-  SafeEnum operator&(ENUM maskValue) {SafeEnum result(*this); result &= maskValue; return result;}
-  SafeEnum operator~() {SafeEnum result(*this); result.mFlags = ~result.mFlags; return result;}
-  explicit operator bool() {return mFlags != 0;}
-
-protected:
-  UNDERLYING mFlags;
-};
-
 // These class must inherit `gazebo_ros2_control::GazeboSystemInterface` which implements a
 // simulated `ros2_control` `hardware_interface::SystemInterface`.
 
@@ -82,15 +60,13 @@ public:
 
 private:
   // Methods used to control a joint.
-  enum ControlMethod_
+  enum ControlMethod
   {
-    NONE      = 0,
-    POSITION  = (1 << 0),
-    VELOCITY  = (1 << 1),
-    EFFORT    = (1 << 2),
+    NONE,
+    POSITION,
+    VELOCITY,
+    EFFORT,
   };
-
-  typedef SafeEnum<enum ControlMethod_> ControlMethod;
 
   void registerJoints(
     const hardware_interface::HardwareInfo & hardware_info);
@@ -116,8 +92,11 @@ private:
   /// \brief vector with the joint's names.
   std::vector<std::string> joint_names_;
 
-  /// \brief vector with the control method defined in the URDF for each joint.
-  std::vector<ControlMethod> joint_control_methods_;
+  /// \brief vector with the control methods defined in the URDF for each joint.
+  std::vector<std::vector<ControlMethod>> joint_available_control_methods_;
+
+  /// \brief vector with current control method for each joint.
+  std::vector<ControlMethod> joint_current_control_method_;
 
   /// \brief handles to the joints from within Gazebo
   std::vector<gazebo::physics::JointPtr> sim_joints_;
